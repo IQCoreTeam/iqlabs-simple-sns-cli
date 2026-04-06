@@ -1,16 +1,12 @@
-import {createRequire} from "node:module";
 import {randomUUID} from "node:crypto";
 import {PublicKey, SystemProgram} from "@solana/web3.js";
 import type {Connection, Signer} from "@solana/web3.js";
-import {BorshAccountsCoder, type Idl} from "@coral-xyz/anchor";
+import {BorshAccountsCoder} from "@coral-xyz/anchor";
 import iqlabs from "@iqlabs-official/solana-sdk";
-import {fetchAccountTransactions} from "@iqlabs-official/solana-sdk/dist/sdk/reader/reader_utils";
 
 import {getWalletCtx} from "../../utils/wallet_manager";
 import {sendInstruction} from "../../utils/tx";
-
-const require = createRequire(import.meta.url);
-const IDL = require("@iqlabs-official/solana-sdk/idl/code_in.json") as Idl;
+import {logStep, logSuccess, logWarn} from "../../utils/logger";
 
 const DEFAULT_ROOT_ID = "solchat-root";
 const DM_TABLE_NAME = "dm";
@@ -37,8 +33,8 @@ export class ChatService {
         this.signer = signer;
         this.dbRootId = Buffer.from(rootId, "utf8");
         this.programId = new PublicKey(iqlabs.contract.DEFAULT_ANCHOR_PROGRAM_ID);
-        this.builder = iqlabs.contract.createInstructionBuilder(IDL, this.programId);
-        this.accountCoder = new BorshAccountsCoder(IDL);
+        this.builder = iqlabs.contract.createInstructionBuilder();
+        this.accountCoder = new BorshAccountsCoder(iqlabs.contract.IQ_IDL);
     }
 
     async setupCliDemo() {
@@ -52,6 +48,7 @@ export class ChatService {
         if (info) {
             return {dbRoot, created: false};
         }
+        logStep("Database root not found. Creating on-chain root...");
         const ix = iqlabs.contract.initializeDbRootInstruction(
             this.builder,
             {
@@ -62,6 +59,7 @@ export class ChatService {
             {db_root_id: this.dbRootId},
         );
         const signature = await sendInstruction(this.connection, this.signer, ix);
+        logSuccess("Database root created!");
         return {dbRoot, created: true, signature};
     }
 
@@ -72,6 +70,15 @@ export class ChatService {
         const userInventory = iqlabs.contract.getUserInventoryPda(user, this.programId);
         const info = await this.connection.getAccountInfo(userInventory);
         if (!info) {
+            logStep("User account not found on-chain. Initializing your account...");
+            logWarn("This requires a small amount of SOL for the on-chain transaction fee.");
+            const balance = await this.connection.getBalance(user);
+            if (balance === 0) {
+                throw new Error(
+                    "Insufficient SOL balance — your wallet has 0 SOL.\n" +
+                    `   Fund your wallet first: ${user.toBase58()}`
+                );
+            }
             const ix = iqlabs.contract.userInitializeInstruction(this.builder, {
                 user,
                 code_account: codeAccount,
@@ -80,6 +87,7 @@ export class ChatService {
                 system_program: SystemProgram.programId,
             });
             await sendInstruction(this.connection, this.signer, ix);
+            logSuccess("Account initialized successfully!");
         }
         if (metadataTxId) {
             await this.updateUserMetadata(metadataTxId);
@@ -313,9 +321,7 @@ export class ChatService {
         const limit =
             typeof options.limit === "number" && options.limit > 0 ? options.limit : 10;
         const seen = new Set<string>();
-        const latest = await fetchAccountTransactions(account, {
-            limit,
-        });
+        const latest = await this.connection.getSignaturesForAddress(account, {limit});
         for (const sig of latest) {
             seen.add(sig.signature);
         }
@@ -323,9 +329,7 @@ export class ChatService {
         const subscriptionId = this.connection.onAccountChange(
             account,
             async () => {
-                const signatures = await fetchAccountTransactions(account, {
-                    limit,
-                });
+                const signatures = await this.connection.getSignaturesForAddress(account, {limit});
                 const fresh = signatures.filter((sig) => !seen.has(sig.signature));
                 if (fresh.length === 0) {
                     return;

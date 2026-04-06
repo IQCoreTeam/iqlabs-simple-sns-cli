@@ -4,21 +4,26 @@ import iqlabs from "@iqlabs-official/solana-sdk";
 
 import {ChatService} from "../../apps/chat/chat-service";
 import {getWalletCtx} from "../../utils/wallet_manager";
-import {logError, logInfo} from "../../utils/logger";
+import {logError, logInfo, logWarn, RESET, BOLD, DIM, CYAN, GREEN} from "../../utils/logger";
 import {prompt} from "../../utils/prompt";
 import {openFriendList} from "./chat";
 
 const showMenu = () => {
-    console.log("\n============================");
-    console.log("         My Menu            ");
-    console.log("============================\n");
-    console.log("  1) RPC Settings");
-    console.log("  2) My Profile");
-    console.log("  3) My Inventory");
-    console.log("  4) DM Inbox");
+    const {signer} = getWalletCtx();
+    const pubkey = signer.publicKey.toBase58();
     console.log("");
-    console.log("  9) Back");
-    console.log("\n============================\n");
+    console.log(`  ${BOLD}${CYAN}╔══════════════════════════╗${RESET}`);
+    console.log(`  ${BOLD}${CYAN}║        My Menu           ║${RESET}`);
+    console.log(`  ${BOLD}${CYAN}╚══════════════════════════╝${RESET}`);
+    console.log(`  ${DIM}Wallet: ${GREEN}${pubkey}${RESET}`);
+    console.log("");
+    console.log(`  ${BOLD}1${RESET}) RPC Settings`);
+    console.log(`  ${BOLD}2${RESET}) My Profile`);
+    console.log(`  ${BOLD}3${RESET}) My Inventory`);
+    console.log(`  ${BOLD}4${RESET}) DM Inbox`);
+    console.log("");
+    console.log(`  ${DIM}9) Back${RESET}`);
+    console.log("");
 };
 
 const ENV_PATH = path.join(process.cwd(), ".env");
@@ -87,7 +92,15 @@ const dmInbox = async () => {
     try {
         await service.setupCliDemo();
     } catch (err) {
-        logError("Chat setup failed", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("Insufficient SOL")) {
+            const {signer} = getWalletCtx();
+            logError("Insufficient SOL balance — your wallet has 0 SOL.");
+            logWarn(`Please fund this wallet to continue:`);
+            console.log(`\n  ${CYAN}${signer.publicKey.toBase58()}${RESET}\n`);
+        } else {
+            logError("Chat setup failed", err);
+        }
         await prompt("Press Enter to continue...");
         return;
     }

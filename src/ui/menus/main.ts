@@ -1,5 +1,5 @@
 import {getWalletCtx, getKeypairInfo} from "../../utils/wallet_manager";
-import {logError} from "../../utils/logger";
+import {logError, RESET, BOLD, DIM, CYAN, GREEN} from "../../utils/logger";
 import {prompt} from "../../utils/prompt";
 import {shortenSig} from "../../utils/format";
 import {runChatCommand} from "./chat";
@@ -11,18 +11,19 @@ const showMainMenu = () => {
     const pubkey = signer.publicKey.toBase58();
     const {path: kpPath} = getKeypairInfo();
 
-    console.log("\n============================");
-    console.log("   Solana Internet CLI      ");
-    console.log("============================\n");
-    console.log(`  Wallet: ${shortenSig(pubkey, 6)}`);
-    console.log(`  Key:    ${kpPath}`);
     console.log("");
-    console.log("  1) My Menu");
-    console.log("  2) SolChat");
-    console.log("  3) IQChan");
+    console.log(`  ${BOLD}${CYAN}╔══════════════════════════╗${RESET}`);
+    console.log(`  ${BOLD}${CYAN}║   Solana Internet CLI    ║${RESET}`);
+    console.log(`  ${BOLD}${CYAN}╚══════════════════════════╝${RESET}`);
+    console.log(`  ${DIM}Wallet: ${GREEN}${shortenSig(pubkey, 6)}${RESET}`);
+    console.log(`  ${DIM}Key:    ${kpPath}${RESET}`);
     console.log("");
-    console.log("  0) Exit");
-    console.log("\n============================\n");
+    console.log(`  ${BOLD}1${RESET}) My Menu`);
+    console.log(`  ${BOLD}2${RESET}) SolChat`);
+    console.log(`  ${BOLD}3${RESET}) IQChan`);
+    console.log("");
+    console.log(`  ${DIM}0) Exit${RESET}`);
+    console.log("");
 };
 
 export const runMainMenu = async () => {

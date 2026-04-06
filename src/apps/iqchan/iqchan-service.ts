@@ -1,15 +1,13 @@
-import {createRequire} from "node:module";
 import {randomUUID} from "node:crypto";
 import {PublicKey, SystemProgram} from "@solana/web3.js";
 import type {Connection, Signer} from "@solana/web3.js";
-import {BorshAccountsCoder, type Idl} from "@coral-xyz/anchor";
 import iqlabs from "@iqlabs-official/solana-sdk";
 
 import {getWalletCtx} from "../../utils/wallet_manager";
 import {sendInstruction} from "../../utils/tx";
+import {logStep, logSuccess, logWarn} from "../../utils/logger";
 import {
     DB_ROOT_ID,
-    BOARD_METADATA,
     BOARD_COLUMNS,
     BOARD_ID_COL,
     BUMP_LIMIT,
@@ -20,9 +18,6 @@ import {
     type Post,
     type ThreadEntry,
 } from "./constants";
-
-const require = createRequire(import.meta.url);
-const IDL = require("@iqlabs-official/solana-sdk/idl/code_in.json") as Idl;
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 
@@ -78,7 +73,12 @@ export class IqchanService {
     readonly dbRootId: Uint8Array;
     readonly programId: PublicKey;
     readonly builder: ReturnType<typeof iqlabs.contract.createInstructionBuilder>;
-    readonly accountCoder: BorshAccountsCoder;
+
+    /** Cached DbRoot data — populated by fetchDbRoot() */
+    private _tableSeeds: string[] = [];
+    private _globalTableSeeds: string[] = [];
+    /** boardId → thread hint list, built from global seeds */
+    private _boardThreads: Map<string, string[]> = new Map();
 
     constructor() {
         const {connection, signer} = getWalletCtx();
@@ -86,34 +86,54 @@ export class IqchanService {
         this.signer = signer;
         this.dbRootId = Buffer.from(iqlabs.utils.toSeedBytes(DB_ROOT_ID));
         this.programId = new PublicKey(iqlabs.contract.DEFAULT_ANCHOR_PROGRAM_ID);
-        this.builder = iqlabs.contract.createInstructionBuilder(IDL, this.programId);
-        this.accountCoder = new BorshAccountsCoder(IDL);
+        this.builder = iqlabs.contract.createInstructionBuilder();
     }
 
     // ─── Setup ───────────────────────────────────────────────────────────────
 
-    async ensureSetup() {
-        // Ensure dbRoot
-        const dbRoot = iqlabs.contract.getDbRootPda(this.dbRootId, this.programId);
-        const rootInfo = await this.connection.getAccountInfo(dbRoot);
-        if (!rootInfo) {
-            const ix = iqlabs.contract.initializeDbRootInstruction(
-                this.builder,
-                {
-                    db_root: dbRoot,
-                    signer: this.signer.publicKey,
-                    system_program: SystemProgram.programId,
-                },
-                {db_root_id: this.dbRootId},
-            );
-            await sendInstruction(this.connection, this.signer, ix);
-        }
+    /** Read-only: fetch board list + thread index from DbRoot (1 RPC call) */
+    async fetchDbRoot() {
+        const list = await iqlabs.reader.getTablelistFromRoot(this.connection, this.dbRootId) as {
+            tableSeeds: string[];
+            globalTableSeeds: string[];
+        };
+        this._tableSeeds = list.tableSeeds;
+        this._globalTableSeeds = list.globalTableSeeds;
 
-        // Ensure user state
+        // Build board → threads map from global seeds
+        // Threads are stored as "boardId/thread/uuid" hints
+        this._boardThreads.clear();
+        for (const seedHex of this._globalTableSeeds) {
+            const hint = Buffer.from(seedHex, "hex").toString("utf8");
+            const match = hint.match(/^([^/]+)\/thread\/(.+)$/);
+            if (!match) continue;
+            const boardId = match[1];
+            const threads = this._boardThreads.get(boardId) || [];
+            threads.push(hint);
+            this._boardThreads.set(boardId, threads);
+        }
+    }
+
+    /** Get cached thread hints for a board (no RPC) */
+    getThreadsForBoard(boardId: string): string[] {
+        return this._boardThreads.get(boardId) || [];
+    }
+
+    /** Write-ready: ensure user account exists on-chain (for posting) */
+    async ensureWriteReady() {
         const user = this.signer.publicKey;
         const userInventory = iqlabs.contract.getUserInventoryPda(user, this.programId);
         const invInfo = await this.connection.getAccountInfo(userInventory);
         if (!invInfo) {
+            logStep("Initializing user account...");
+            logWarn("This requires a small amount of SOL.");
+            const balance = await this.connection.getBalance(user);
+            if (balance === 0) {
+                throw new Error(
+                    "Insufficient SOL balance — your wallet has 0 SOL.\n" +
+                    `   Fund your wallet first: ${user.toBase58()}`
+                );
+            }
             const ix = iqlabs.contract.userInitializeInstruction(this.builder, {
                 user,
                 code_account: iqlabs.contract.getCodeAccountPda(user, this.programId),
@@ -122,6 +142,7 @@ export class IqchanService {
                 system_program: SystemProgram.programId,
             });
             await sendInstruction(this.connection, this.signer, ix);
+            logSuccess("User account initialized!");
         }
     }
 
@@ -142,55 +163,32 @@ export class IqchanService {
 
     // ─── Reads ───────────────────────────────────────────────────────────────
 
-    async listBoards(): Promise<Array<{ id: string; title: string; description: string }>> {
-        const list = await iqlabs.reader.getTablelistFromRoot(
-            this.connection,
-            this.dbRootId,
-        );
+    listBoards(): Array<{ id: string; title: string; description: string }> {
+        // table_seeds now contain readable slugs ("po", "biz", etc.)
+        // Decode hex → UTF-8 to get the slug, use as both id and title
+        return this._tableSeeds.map((seedHex) => {
+            const slug = Buffer.from(seedHex, "hex").toString("utf8");
+            return {id: slug, title: slug, description: ""};
+        });
+    }
 
-        const knownSeeds = new Set(
-            Object.keys(BOARD_METADATA).map((id) =>
-                Buffer.from(iqlabs.utils.toSeedBytes(id)).toString("hex"),
-            ),
-        );
-
-        const boards: Array<{ id: string; title: string; description: string }> =
-            Object.entries(BOARD_METADATA).map(([id, m]) => ({
-                id,
-                title: m.title,
-                description: m.description,
-            }));
-
-        // Append unknown boards from on-chain
+    /** List threads for a board from cached global seeds (no RPC) */
+    listBoardThreads(boardId: string): ThreadEntry[] {
+        const threadHints = this._boardThreads.get(boardId) || [];
         const dbRoot = iqlabs.contract.getDbRootPda(this.dbRootId, this.programId);
-        const allSeeds = [...new Set([...list.tableSeeds, ...list.globalTableSeeds])];
 
-        for (const seedHex of allSeeds) {
-            if (knownSeeds.has(seedHex)) continue;
-
-            let name = seedHex;
-            const seed = Buffer.from(seedHex, "hex");
-            const table = iqlabs.contract.getTablePda(dbRoot, seed, this.programId);
-            const info = await this.connection.getAccountInfo(table);
-            if (info) {
-                try {
-                    const decoded = this.accountCoder.decode("Table", info.data) as {
-                        name: Uint8Array;
-                    };
-                    const decodedName = Buffer.from(decoded.name)
-                        .toString("utf8")
-                        .replace(/\0+$/, "")
-                        .trim();
-                    if (decodedName) name = decodedName;
-                } catch {
-                    // ignore
-                }
-            }
-
-            boards.push({id: name, title: name, description: ""});
-        }
-
-        return boards;
+        return threadHints.map((hint) => {
+            const seedBytes = Buffer.from(iqlabs.utils.toSeedBytes(hint));
+            const threadPda = iqlabs.contract.getTablePda(dbRoot, seedBytes, this.programId);
+            return {
+                threadPda: threadPda.toBase58(),
+                threadSeed: hint,
+                opData: null,
+                lastActivityTime: 0,
+                replyCount: 0,
+                lastReplies: [],
+            };
+        });
     }
 
     async fetchFeedThreads(boardId: string): Promise<ThreadEntry[]> {
@@ -314,6 +312,24 @@ export class IqchanService {
         return {op, replies};
     }
 
+    /** Fetch all signatures for a thread PDA (1 RPC call, up to 1000) */
+    async fetchThreadSignatures(threadPda: string): Promise<string[]> {
+        return iqlabs.reader.collectSignatures(threadPda, 1000);
+    }
+
+    /** Read a single tx signature into a Post (1 RPC call) */
+    async readSinglePost(sig: string): Promise<Post | null> {
+        try {
+            const {data} = await iqlabs.reader.readCodeIn(sig);
+            if (!data) return null;
+            const parsed = JSON.parse(data);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                return {...parsed, __txSignature: sig} as Post;
+            }
+        } catch {}
+        return null;
+    }
+
     // ─── Writes ──────────────────────────────────────────────────────────────
 
     async createThread(
@@ -342,6 +358,7 @@ export class IqchanService {
             {
                 db_root_id: this.dbRootId,
                 table_seed: seedBytes,
+                table_hint: Buffer.from(seed),
                 table_name: Buffer.from(seed),
                 column_names: BOARD_COLUMNS.map((c) => Buffer.from(c)),
                 id_col: Buffer.from(BOARD_ID_COL),

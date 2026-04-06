@@ -57,11 +57,10 @@ export const selectFromList = async (
         console.log(title);
         console.log("");
         items.forEach((item, i) => {
-            const prefix = i === index ? "> " : "  ";
-            console.log(prefix + render(item, i === index));
+            console.log(render(item, i === index));
         });
         console.log("");
-        console.log("Enter = select, Esc = back");
+        console.log("\x1b[2m  Enter = select  |  Esc = back\x1b[0m");
     };
 
     return await new Promise<number | null>((resolve) => {
@@ -81,7 +80,7 @@ export const selectFromList = async (
                 resolve(index);
                 return;
             }
-            if (key.name === "escape" || (key.ctrl && key.name === "c")) {
+            if (key.name === "escape" || key.sequence === "\x1b" || (key.ctrl && key.name === "c")) {
                 cleanup();
                 resolve(null);
             }
@@ -90,6 +89,8 @@ export const selectFromList = async (
         const cleanup = () => {
             stdin.off("keypress", onKey);
             stdin.setRawMode(Boolean(wasRaw));
+            stdin.pause();
+            rl = null;
         };
 
         stdin.on("keypress", onKey);
