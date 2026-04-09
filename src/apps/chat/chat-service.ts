@@ -194,26 +194,6 @@ export class ChatService {
         );
     }
 
-    async sendDm(dmSeed: Uint8Array, message: string, handle?: string) {
-        const trimmed = message.trim();
-        if (!trimmed) {
-            throw new Error("message is empty");
-        }
-        const rowJson = JSON.stringify({
-            id: makeMessageId(12),
-            text: trimmed,
-            sender: handle?.trim() || this.signer.publicKey.toBase58(),
-            timestamp: Date.now(),
-        });
-        return iqlabs.writer.writeConnectionRow(
-            this.connection,
-            this.signer,
-            this.dbRootId,
-            dmSeed,
-            rowJson,
-        );
-    }
-
     // Deterministic ed25519 signer from this wallet's secret key.
     // Used by deriveX25519Keypair to produce a DH keypair that is
     // reproducible for the same wallet.
