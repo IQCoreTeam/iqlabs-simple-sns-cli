@@ -47,17 +47,18 @@ const runDmChat = async (service: ChatService, friend: any) => {
         logError("Failed to ensure your encryption key", err);
     }
     const partnerKey = await service.lookupDhKey(friend.address);
-    const canEncrypt = !!(partnerKey && myKey);
+    if (!myKey || !partnerKey) {
+        console.clear();
+        console.log(`${RED}${BOLD}(x_x) ENCRYPTION UNAVAILABLE — DM REFUSED${RESET}`);
+        if (!myKey) console.log(`${RED}Your IQ encryption key is not registered. Re-open DM after registering it.${RESET}`);
+        if (!partnerKey) console.log(`${RED}Partner ${friend.address} has not registered an encryption key yet.${RESET}`);
+        await prompt("Press enter to return... ");
+        return;
+    }
 
     console.clear();
-    if (canEncrypt) {
-        console.log(`${GREEN}${BOLD}(^_^)/ IQ ENCRYPTION ACTIVE${RESET}`);
-        console.log(`${GREEN}Messages are end-to-end encrypted. Only you and ${friend.address} can read them.${RESET}`);
-    } else {
-        console.log(`${YELLOW}${BOLD}(>_<) PLAINTEXT MODE${RESET}`);
-        if (!myKey) console.log(`${YELLOW}You have not registered your encryption key. Use the menu to register it.${RESET}`);
-        if (!partnerKey) console.log(`${YELLOW}Partner has not registered an encryption key. Messages will be readable by anyone.${RESET}`);
-    }
+    console.log(`${GREEN}${BOLD}(^_^)/ IQ ENCRYPTION ACTIVE${RESET}`);
+    console.log(`${GREEN}Messages are end-to-end encrypted. Only you and ${friend.address} can read them.${RESET}`);
     console.log();
 
     const history = await service.fetchDmHistory(friend.seed, {limit: 20});
@@ -94,15 +95,10 @@ const runDmChat = async (service: ChatService, friend: any) => {
                 logInfo("Blocked");
                 continue;
             }
-            if (canEncrypt) {
-                try {
-                    await service.sendEncryptedDm(friend.seed, friend.address, input);
-                } catch (err) {
-                    logError("Encrypted send failed, falling back to plaintext", err);
-                    await service.sendDm(friend.seed, input);
-                }
-            } else {
-                await service.sendDm(friend.seed, input);
+            try {
+                await service.sendEncryptedDm(friend.seed, friend.address, input);
+            } catch (err) {
+                logError("Encrypted send failed — message NOT sent", err);
             }
         }
     } finally {
