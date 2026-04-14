@@ -2,8 +2,7 @@ import {IqchanService} from "../../apps/iqchan/iqchan-service";
 import type {Post, ThreadEntry} from "../../apps/iqchan/constants";
 import {logError, logInfo, RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, WHITE, RED} from "../../utils/logger";
 import {prompt, selectFromList, closeReadline} from "../../utils/prompt";
-import {formatDate, timeAgo, truncate} from "../../utils/format";
-import {utils} from "@iqlabs-official/solana-sdk";
+import {formatDate, timeAgo, truncate, shortenSig} from "../../utils/format";
 
 const PAGE_SIZE = 20;
 
@@ -25,7 +24,7 @@ function renderThreadPreview(entry: ThreadEntry, selected: boolean): string {
         return `${DIM}    Thread ${uuid}  /${board}/${RESET}\n`;
     }
 
-    const sig = op.__txSignature ? utils.shortenSig(op.__txSignature) : "???";
+    const sig = op.__txSignature ? shortenSig(op.__txSignature) : "???";
     const sub = op.sub ? `${op.sub} ` : "";
 
     if (selected) {
@@ -40,7 +39,7 @@ function renderPost(
     total: number,
     isOp: boolean,
 ): string[] {
-    const sig = post.__txSignature ? utils.shortenSig(post.__txSignature) : "???";
+    const sig = post.__txSignature ? shortenSig(post.__txSignature) : "???";
     const lines: string[] = [];
 
     if (isOp) {

@@ -9,7 +9,7 @@ import {
     type PlazaFolder,
     type SpeedProfile,
 } from "../../apps/file-share/file-share-service";
-import {timeAgo, truncate} from "../../utils/format";
+import {timeAgo, truncate, shortenSig} from "../../utils/format";
 import {
     BOLD, CYAN, DIM, GREEN, MAGENTA, RED, RESET, WHITE, YELLOW,
     logError, logInfo, logStep, logSuccess,
@@ -212,7 +212,7 @@ const uploadToPlazaFlow = async (service: FileShareService, speed: SpeedProfile)
         `  ${YELLOW}heads up:${RESET} this folder is ${folder.isPublic ? "public" : "private"}. your wallet`,
     );
     console.log(
-        `            (${iqlabs.utils.shortenSig(service.signer.publicKey.toBase58())}) is stamped on chain forever.`,
+        `            (${shortenSig(service.signer.publicKey.toBase58())}) is stamped on chain forever.`,
     );
     console.log(`            no delete button. there will never be a delete button.`);
     console.log();
@@ -352,7 +352,7 @@ const createPlazaFolderFlow = async (
         if (!result.created) {
             logInfo(`folder '${name}' already exists. using it.`);
         } else {
-            logSuccess(`created. tx: ${iqlabs.utils.shortenSig(result.signature)}`);
+            logSuccess(`created. tx: ${shortenSig(result.signature)}`);
         }
         return result.folder;
     } catch (err) {
@@ -465,7 +465,7 @@ const browsePlazaFolder = async (
                 const f = item.file;
                 const fname = f.ext ? `${f.name}.${f.ext}` : f.name;
                 const when = f.timestamp ? timeAgo(Math.floor(f.timestamp / 1000)) : "?";
-                return `${marker} ${WHITE}${fname}${RESET}  ${DIM}by ${iqlabs.utils.shortenSig(f.uploader)} - ${when}${RESET}`;
+                return `${marker} ${WHITE}${fname}${RESET}  ${DIM}by ${shortenSig(f.uploader)} - ${when}${RESET}`;
             },
         );
         if (idx === null) return;
@@ -477,7 +477,7 @@ const browsePlazaFolder = async (
             : chosen.file.name;
         console.log();
         console.log(
-            `  ${DIM}note: this came from a stranger (${iqlabs.utils.shortenSig(chosen.file.uploader)}). scan it after download${RESET}`,
+            `  ${DIM}note: this came from a stranger (${shortenSig(chosen.file.uploader)}). scan it after download${RESET}`,
         );
         console.log(`  ${DIM}      if you're paranoid (you should be).${RESET}`);
         console.log();
@@ -620,7 +620,7 @@ const myFilesFlow = async (service: FileShareService, speed: SpeedProfile) => {
             items,
             (item, selected) => {
                 const marker = selected ? `${CYAN}>${RESET}` : " ";
-                const sigShort = iqlabs.utils.shortenSig(item.sig);
+                const sigShort = shortenSig(item.sig);
                 const when = item.blockTime ? timeAgo(item.blockTime) : "?";
                 const errTag = item.err ? ` ${RED}[err]${RESET}` : "";
                 return `${marker} ${WHITE}${sigShort}${RESET}  ${DIM}${when}${RESET}${errTag}`;
@@ -659,7 +659,7 @@ const pickAction = async (sig: string): Promise<"peek" | "download" | "back" | n
         {label: "Back", value: "back" as const},
     ];
     const idx = await selectFromList(
-        `${DIM}tx: ${iqlabs.utils.shortenSig(sig)}${RESET}`,
+        `${DIM}tx: ${shortenSig(sig)}${RESET}`,
         actions,
         (item, selected) => {
             const marker = selected ? `${CYAN}>${RESET}` : " ";
@@ -770,7 +770,7 @@ export const runFileShareMenu = async () => {
 
     while (true) {
         const me = service.signer.publicKey.toBase58();
-        const header = `${FILE_SHARE_LOGO}\n  ${DIM}wallet: ${GREEN}${iqlabs.utils.shortenSig(me)}${RESET}  ${DIM}speed: ${RESET}${currentSpeed}`;
+        const header = `${FILE_SHARE_LOGO}\n  ${DIM}wallet: ${GREEN}${shortenSig(me)}${RESET}  ${DIM}speed: ${RESET}${currentSpeed}`;
 
         const idx = await selectFromList(
             header,

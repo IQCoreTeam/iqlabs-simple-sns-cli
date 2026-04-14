@@ -1,7 +1,7 @@
 import {getWalletCtx} from "../../utils/wallet_manager";
 import {logError, RESET, BOLD, DIM, CYAN, GREEN, WHITE, YELLOW} from "../../utils/logger";
 import {prompt, selectFromList} from "../../utils/prompt";
-import {utils} from "@iqlabs-official/solana-sdk";
+import {shortenSig} from "../../utils/format";
 import {runChatCommand} from "./chat";
 import {runFileShareMenu} from "./file-share";
 import {runMyMenu} from "./my-menu";
@@ -26,7 +26,7 @@ const MENU_ITEMS = [
 
 export const runMainMenu = async () => {
     const {signer} = getWalletCtx();
-    const pubkey = utils.shortenSig(signer.publicKey.toBase58());
+    const pubkey = shortenSig(signer.publicKey.toBase58());
 
     while (true) {
         const index = await selectFromList(

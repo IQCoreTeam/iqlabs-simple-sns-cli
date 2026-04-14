@@ -25,3 +25,8 @@ export function truncate(text: string, maxLen: number): string {
     return text.slice(0, maxLen - 3) + "...";
 }
 
+export function shortenSig(sig: string): string {
+    if (sig.length <= 11) return sig;
+    return sig.slice(0, 4) + "..." + sig.slice(-4);
+}
+
